@@ -1,0 +1,37 @@
+name: Pure SSH
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        run: |
+          sudo apt update
+          sudo apt install -y openssh-server
+          sudo sed -i 's/#Port 22/Port 22/' /etc/ssh/sshd_config
+          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          PASSWORD=$(openssl rand -base64 12 | tr -d '=+/' | cut -c1-12)
+          echo "root:$PASSWORD" | sudo chpasswd
+          sudo systemctl restart ssh
+          IP=$(curl -s ifconfig.me)
+          echo "IP=$IP" >> $GITHUB_ENV
+          echo "PASSWORD=$PASSWORD" >> $GITHUB_ENV
+
+      - name: Show Results
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "SSH SERVER READY"
+          echo "=========================================="
+          echo "IP: $IP"
+          echo "Port: 22"
+          echo "Login: root"
+          echo "Password: $PASSWORD"
+          echo ""
+          echo "Connect: ssh root@$IP -p 22"
+          echo "=========================================="
+
+      - name: Keep Alive
+        run: sleep 360000
