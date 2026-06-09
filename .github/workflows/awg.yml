@@ -1,0 +1,86 @@
+name: AmneziaWG
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup AmneziaWG
+        run: |
+          # 1. Установка зависимостей
+          sudo apt update
+          sudo apt install -y wireguard-tools iptables
+
+          # 2. Установка WireGuard
+          sudo apt install -y wireguard
+
+          # 3. Генерация ключей
+          SERVER_PRIVATE_KEY=$(wg genkey)
+          SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)
+          CLIENT_PRIVATE_KEY=$(wg genkey)
+          CLIENT_PUBLIC_KEY=$(echo $CLIENT_PRIVATE_KEY | wg pubkey)
+          PSK=$(wg genpsk)
+          IP_SERVER="10.0.0.1"
+          IP_CLIENT="10.0.0.2"
+          PORT=443
+
+          # 4. Настройка IP-форвардинга
+          sudo sysctl -w net.ipv4.ip_forward=1
+
+          # 5. Создание конфига WireGuard
+          sudo bash -c "cat > /etc/wireguard/wg0.conf << EOF
+[Interface]
+PrivateKey = $SERVER_PRIVATE_KEY
+Address = $IP_SERVER/24
+ListenPort = $PORT
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+EOF"
+
+          # 6. Добавление клиента
+          sudo bash -c "cat >> /etc/wireguard/wg0.conf << EOF
+
+[Peer]
+PublicKey = $CLIENT_PUBLIC_KEY
+PresharedKey = $PSK
+AllowedIPs = $IP_CLIENT/32
+EOF"
+
+          # 7. Запуск WireGuard
+          sudo systemctl enable wg-quick@wg0
+          sudo systemctl start wg-quick@wg0
+
+          # 8. Получение IP
+          IP=$(curl -s ifconfig.me)
+
+          # 9. Конфиг для клиента
+          cat > client.conf << EOF
+[Interface]
+PrivateKey = $CLIENT_PRIVATE_KEY
+Address = $IP_CLIENT/24
+DNS = 1.1.1.1
+MTU = 1420
+
+[Peer]
+PublicKey = $SERVER_PUBLIC_KEY
+PresharedKey = $PSK
+Endpoint = $IP:$PORT
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+EOF
+
+          echo ""
+          echo "======================================"
+          echo "✅ AmneziaWG настроен"
+          echo "======================================"
+          echo "IP сервера: $IP"
+          echo "Порт: $PORT"
+          echo ""
+          echo "КОНФИГ ДЛЯ КЛИЕНТА:"
+          echo ""
+          cat client.conf
+          echo ""
+          echo "======================================"
+
+      - name: Keep alive
+        run: sleep 360000
