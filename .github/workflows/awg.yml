@@ -1,0 +1,95 @@
+name: AmneziaWG
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y wireguard-tools iptables wireguard
+
+      - name: Generate keys
+        run: |
+          echo "SERVER_PRIVATE_KEY=$(wg genkey)" >> $GITHUB_ENV
+          echo "CLIENT_PRIVATE_KEY=$(wg genkey)" >> $GITHUB_ENV
+          echo "PSK=$(wg genpsk)" >> $GITHUB_ENV
+
+      - name: Calculate public keys
+        run: |
+          echo "SERVER_PUBLIC_KEY=$(echo $SERVER_PRIVATE_KEY | wg pubkey)" >> $GITHUB_ENV
+          echo "CLIENT_PUBLIC_KEY=$(echo $CLIENT_PRIVATE_KEY | wg pubkey)" >> $GITHUB_ENV
+
+      - name: Enable IP forwarding
+        run: |
+          sudo sysctl -w net.ipv4.ip_forward=1
+
+      - name: Create WireGuard config
+        run: |
+          sudo mkdir -p /etc/wireguard
+          sudo tee /etc/wireguard/wg0.conf > /dev/null << 'EOF'
+          [Interface]
+          Address = 10.0.0.1/24
+          ListenPort = 443
+          PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+          PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+          EOF
+
+      - name: Add peer to config
+        run: |
+          sudo tee -a /etc/wireguard/wg0.conf > /dev/null << EOF
+          
+          [Peer]
+          PublicKey = ${{ env.CLIENT_PUBLIC_KEY }}
+          PresharedKey = ${{ env.PSK }}
+          AllowedIPs = 10.0.0.2/32
+          EOF
+
+      - name: Add private key to config
+        run: |
+          sudo sed -i "s|PrivateKey = |PrivateKey = ${{ env.SERVER_PRIVATE_KEY }}|" /etc/wireguard/wg0.conf
+
+      - name: Start WireGuard
+        run: |
+          sudo systemctl enable wg-quick@wg0
+          sudo systemctl start wg-quick@wg0
+
+      - name: Get server IP
+        run: |
+          echo "SERVER_IP=$(curl -s ifconfig.me)" >> $GITHUB_ENV
+
+      - name: Generate client config
+        run: |
+          cat > client.conf << EOF
+          [Interface]
+          PrivateKey = ${{ env.CLIENT_PRIVATE_KEY }}
+          Address = 10.0.0.2/24
+          DNS = 1.1.1.1
+          MTU = 1420
+
+          [Peer]
+          PublicKey = ${{ env.SERVER_PUBLIC_KEY }}
+          PresharedKey = ${{ env.PSK }}
+          Endpoint = ${{ env.SERVER_IP }}:443
+          AllowedIPs = 0.0.0.0/0
+          PersistentKeepalive = 25
+          EOF
+
+      - name: Show client config
+        run: |
+          echo ""
+          echo "======================================"
+          echo "✅ AmneziaWG настроен"
+          echo "======================================"
+          echo "IP сервера: ${{ env.SERVER_IP }}"
+          echo "Порт: 443"
+          echo ""
+          echo "КОНФИГ ДЛЯ КЛИЕНТА (сохрани как client.conf):"
+          echo ""
+          cat client.conf
+          echo ""
+          echo "======================================"
+
+      - name: Keep alive
+        run: sleep 360000
