@@ -1,0 +1,33 @@
+name: Root Wush
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check root access
+        run: |
+          echo "=== ROOT CHECK ==="
+          whoami
+          id
+          sudo whoami
+
+      - name: Install Wush
+        run: |
+          curl -fsSL https://github.com/coder/wush/raw/refs/heads/main/install.sh | sudo sh
+          sudo mv wush /usr/local/bin/
+
+      - name: Start Wush server
+        run: |
+          sudo wush serve &
+          sleep 5
+          echo ""
+          echo "=========================================="
+          echo "✅ ROOT WUSH SERVER READY"
+          echo "=========================================="
+          echo "👉 КЛЮЧ ПОДКЛЮЧЕНИЯ:"
+          sudo wush connect --show-key
+          echo "=========================================="
+
+      - name: Keep alive
+        run: sleep 360000
