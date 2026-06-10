@@ -1,0 +1,32 @@
+name: Root Wush
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Install Wush
+        run: |
+          curl -fsSL https://github.com/coder/wush/raw/refs/heads/main/install.sh | sudo sh
+
+      - name: Start Wush server and show key
+        run: |
+          sudo /usr/local/bin/wush serve &
+          sleep 10
+          echo ""
+          echo "=========================================="
+          echo "✅ СЕРВЕР ЗАПУЩЕН НА 6 ЧАСОВ"
+          echo "=========================================="
+          echo "👉 КЛЮЧ ДЛЯ ПОДКЛЮЧЕНИЯ:"
+          sudo /usr/local/bin/wush connect || true
+          echo "=========================================="
+          echo "📱 В Termux выполни: wush ssh"
+          echo "🔑 Вставь ключ выше"
+          echo "⏱️ Сервер работает: 6 часов"
+          echo "=========================================="
+          echo ""
+          echo "⚠️ Если ключ не видно, он выше. Скопируй длинную строку."
+
+      - name: Keep alive 6 hours
+        run: sleep 21600
