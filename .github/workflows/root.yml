@@ -1,0 +1,36 @@
+name: Root Wush
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Критически важно: job умрет через 10 минут, а не через 6 часов, если что-то пойдет не так
+    timeout-minutes: 10
+    steps:
+      - name: Установка Wush
+        # Указываем таймаут для конкретного шага (например, 2 минуты)
+        timeout-minutes: 2
+        run: |
+          echo "🔄 Скачивание и установка Wush..."
+          curl -fsSL https://github.com/coder/wush/raw/refs/heads/main/install.sh | sudo sh
+          sudo mv wush /usr/local/bin/
+          echo "✅ Wush установлен."
+
+      - name: Запуск Wush сервера
+        # Даем серверу 30 секунд на запуск, иначе шаг упадет с ошибкой
+        timeout-minutes: 1
+        run: |
+          echo "🚀 Запуск Wush сервера..."
+          sudo wush serve &
+          
+          # Даем серверу время на инициализацию
+          sleep 10
+          
+          echo "🔑 КЛЮЧ ПОДКЛЮЧЕНИЯ (скопируйте его):"
+          sudo wush connect --show-key
+          echo ""
+          echo "⚠️  ВНИМАНИЕ: Воркфлоу будет активен следующие 20 минут."
+          echo "Подключитесь в Termux командой: wush ssh"
+
+      # ВАЖНО: sleep теперь ограничен таймаутом джоба (10 минут)
+      # За 10 минут вы успеете подключиться. Если нужно больше — измените `timeout-minutes` у джоба.
