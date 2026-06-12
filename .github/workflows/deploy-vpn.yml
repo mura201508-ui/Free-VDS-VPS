@@ -1,0 +1,98 @@
+name: Deploy VPN Server VLESS Reality
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_ip:
+        description: 'IP сервера'
+        required: true
+        type: string
+      ssh_username:
+        description: 'SSH пользователь'
+        required: true
+        default: 'root'
+        type: string
+      ssh_key:
+        description: 'Приватный SSH ключ'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy VPN
+        run: |
+          echo "${{ github.event.inputs.ssh_key }}" > key
+          chmod 600 key
+          ssh -o StrictHostKeyChecking=no -i key ${{ github.event.inputs.ssh_username }}@${{ github.event.inputs.server_ip }} '
+            apt update -y
+            apt install -y curl wget openssl ufw
+            curl -s -L https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh | bash
+            bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root
+            PUB_KEY=$(/usr/local/bin/xray x25519 | grep "Public key" | awk "{print \$3}")
+            PRIV_KEY=$(/usr/local/bin/xray x25519 | grep "Private key" | awk "{print \$3}")
+            UUID=$(cat /proc/sys/kernel/random/uuid)
+            SID=$(openssl rand -hex 8)
+            IP=$(curl -s ifconfig.me)
+            cat > /usr/local/etc/xray/config.json << EOF
+            {
+              "inbounds": [{
+                "port": 443,
+                "protocol": "vless",
+                "settings": {
+                  "clients": [{"id": "'$UUID'", "flow": "xtls-rprx-vision"}],
+                  "decryption": "none"
+                },
+                "streamSettings": {
+                  "network": "tcp",
+                  "security": "reality",
+                  "realitySettings": {
+                    "dest": "www.yahoo.com:443",
+                    "serverNames": ["www.yahoo.com"],
+                    "privateKey": "'$PRIV_KEY'",
+                    "shortIds": ["'$SID'"],
+                    "fingerprint": "chrome"
+                  }
+                }
+              }],
+              "outbounds": [{"protocol": "freedom"}]
+            }
+            EOF
+            systemctl restart xray
+            systemctl enable xray
+            ufw allow 443/tcp
+            echo "y" | ufw enable
+            echo ""
+            echo "========================================="
+            echo "==========  VPN ГОТОВ  =================="
+            echo "========================================="
+            echo ""
+            echo "🔑 PBK КЛЮЧ (скопируйте):"
+            echo "$PUB_KEY"
+            echo ""
+            echo "🔗 VLESS ССЫЛКА (скопируйте целиком):"
+            echo "vless://$UUID@$IP:443?encryption=none&security=reality&sni=www.yahoo.com&fp=chrome&pbk=$PUB_KEY&sid=$SID&type=tcp&flow=xtls-rprx-vision#VPN_$IP"
+            echo ""
+            echo "📝 ДЛЯ РУЧНОГО ВВОДА:"
+            echo "Server: $IP"
+            echo "Port: 443"
+            echo "UUID: $UUID"
+            echo "Public Key (pbk): $PUB_KEY"
+            echo "Short ID: $SID"
+            echo "SNI: www.yahoo.com"
+            echo "Fingerprint: chrome"
+            echo "Flow: xtls-rprx-vision"
+            echo ""
+            echo "🎛️ ПАНЕЛЬ УПРАВЛЕНИЯ:"
+            echo "http://$IP:2053"
+            echo "Login: admin"
+            echo "Password: admin"
+            echo ""
+            echo "========================================="
+            echo "🕐 Сервер будет работать 6 часов"
+            echo "========================================="
+            sleep 21600
+            systemctl stop xray
+            echo "⏰ 6 часов прошло, VPN остановлен"
+          '
