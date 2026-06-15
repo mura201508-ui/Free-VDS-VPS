@@ -1,0 +1,109 @@
+name: VPN Server inside GitHub Actions
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vpn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Install Cloudflared
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
+
+      - name: Install Xray
+        run: |
+          sudo bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root
+
+      - name: Generate config and run VPN
+        run: |
+          # Генерация ключей и UUID
+          UUID=$(cat /proc/sys/kernel/random/uuid)
+          SID=$(openssl rand -hex 8)
+          KEY_PAIR=$(sudo /usr/local/bin/xray x25519)
+          PRIVATE_KEY=$(echo "$KEY_PAIR" | grep "Private key" | awk '{print $3}')
+          PUBLIC_KEY=$(echo "$KEY_PAIR" | grep "Public key" | awk '{print $3}')
+
+          # Конфиг Xray на порту 8080
+          sudo tee /usr/local/etc/xray/config.json > /dev/null << EOF
+          {
+            "inbounds": [{
+              "port": 8080,
+              "protocol": "vless",
+              "settings": {
+                "clients": [{"id": "$UUID"}],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "ws",
+                "wsSettings": {"path": "/"},
+                "security": "none"
+              }
+            }],
+            "outbounds": [{"protocol": "freedom"}]
+          }
+          EOF
+
+          # Запуск Xray
+          sudo systemctl restart xray
+          sudo systemctl enable xray
+
+          # Запуск Cloudflare Tunnel
+          nohup cloudflared tunnel --url http://localhost:8080 > /tmp/tunnel.log 2>&1 &
+
+          sleep 10
+
+          # Получаем URL туннеля
+          TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9.-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1)
+
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ Ошибка: туннель не запустился"
+            cat /tmp/tunnel.log
+            exit 1
+          fi
+
+          TUNNEL_HOST=$(echo "$TUNNEL_URL" | sed 's|https://||')
+
+          echo ""
+          echo "███████████████████████████████████████████████████████████"
+          echo "█                 VPN ЗАПУЩЕН В GitHub ACTIONS             █"
+          echo "███████████████████████████████████████████████████████████"
+          echo ""
+          echo "🌐 Адрес сервера: $TUNNEL_HOST"
+          echo "🔌 Порт: 443 (используйте TLS)"
+          echo "🔑 UUID: $UUID"
+          echo "🔑 PBK (Public Key): $PUBLIC_KEY"
+          echo "🔑 Short ID: $SID"
+          echo ""
+          echo "───────────────────────────────────────────────────────────"
+          echo "🔗 VLESS ССЫЛКА (скопировать целиком):"
+          echo ""
+          echo "vless://$UUID@$TUNNEL_HOST:443?encryption=none&security=tls&sni=$TUNNEL_HOST&fp=chrome&type=ws&path=%2F#GitHub_Actions_VPN"
+          echo ""
+          echo "───────────────────────────────────────────────────────────"
+          echo "📝 ДЛЯ РУЧНОГО ВВОДА В КЛИЕНТ:"
+          echo "   Server: $TUNNEL_HOST"
+          echo "   Port: 443"
+          echo "   UUID: $UUID"
+          echo "   Security: tls"
+          echo "   Network: ws"
+          echo "   Path: /"
+          echo "   SNI: $TUNNEL_HOST"
+          echo ""
+          echo "███████████████████████████████████████████████████████████"
+          echo "🕐 Сервер будет работать 6 часов (максимум GitHub Actions)"
+          echo "███████████████████████████████████████████████████████████"
+
+      - name: Keep alive (6 hours)
+        run: |
+          echo ""
+          echo "✅ VPN сервер работает внутри GitHub Actions"
+          echo "✅ Cloudflare Tunnel активен"
+          echo "✅ Скопируйте VLESS ссылку выше и вставьте в клиент"
+          echo ""
+          echo "=== Ожидание 6 часов ==="
+          sleep 21600
